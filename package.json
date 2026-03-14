@@ -1,0 +1,61 @@
+{
+	"name": "langgraph-agui",
+	"version": "0.1.0",
+	"description": "LangGraph.js AG-UI Protocol Adapter — connect LangGraph agents to CopilotKit and other AG-UI consumers without a separate server",
+	"type": "module",
+	"main": "./dist/index.cjs",
+	"module": "./dist/index.js",
+	"types": "./dist/index.d.ts",
+	"exports": {
+		".": {
+			"import": {
+				"types": "./dist/index.d.ts",
+				"default": "./dist/index.js"
+			},
+			"require": {
+				"types": "./dist/index.d.cts",
+				"default": "./dist/index.cjs"
+			}
+		},
+		"./package.json": "./package.json"
+	},
+	"scripts": {
+		"build": "tsdown",
+		"check": "biome check . && tsc && knip && bun test",
+		"lint": "biome check .",
+		"lint:fix": "biome check . --write",
+		"format": "biome format . --write",
+		"test": "bun test",
+		"prepublishOnly": "bun run build"
+	},
+	"dependencies": {
+		"@ag-ui/client": "^0.0.47",
+		"@ag-ui/encoder": "^0.0.47",
+		"rxjs": "7.8.1"
+	},
+	"peerDependencies": {
+		"@langchain/core": ">=0.3.0",
+		"@langchain/langgraph": ">=0.2.0"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^1.9.4",
+		"@langchain/core": "^1.1.25",
+		"@types/bun": "^1.2.0",
+		"knip": "^5.0.0",
+		"tsdown": "^0.9.0",
+		"typescript": "^5.7.0"
+	},
+	"files": ["dist", "src", "README.md"],
+	"license": "MIT",
+	"keywords": [
+		"langgraph",
+		"ag-ui",
+		"copilotkit",
+		"langchain",
+		"agent",
+		"protocol"
+	],
+	"overrides": {
+		"rxjs": "7.8.1"
+	}
+}
