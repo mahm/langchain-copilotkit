@@ -1,7 +1,7 @@
 import { describe, expect, it } from "bun:test";
 import { EventType } from "@ag-ui/client";
 import type { BaseEvent, RunAgentInput } from "@ag-ui/client";
-import { LangGraphAgent } from "./agent";
+import { LangChainAgentAdapter } from "./adapter";
 
 function makeMockAgent(events: Array<Record<string, unknown>>) {
 	return {
@@ -13,7 +13,7 @@ function makeMockAgent(events: Array<Record<string, unknown>>) {
 	} as never;
 }
 
-function collectEvents(agent: LangGraphAgent, input: RunAgentInput) {
+function collectEvents(agent: LangChainAgentAdapter, input: RunAgentInput) {
 	return new Promise<BaseEvent[]>((resolve, reject) => {
 		const collected: BaseEvent[] = [];
 		agent.run(input).subscribe({
@@ -38,9 +38,9 @@ const baseInput: RunAgentInput = {
 	forwardedProps: {},
 };
 
-describe("LangGraphAgent", () => {
+describe("LangChainAgentAdapter", () => {
 	it("emits RUN_STARTED and RUN_FINISHED for an empty stream", async () => {
-		const agent = new LangGraphAgent({ agent: makeMockAgent([]) });
+		const agent = new LangChainAgentAdapter({ agent: makeMockAgent([]) });
 		const events = await collectEvents(agent, baseInput);
 
 		expect(events.length).toBeGreaterThanOrEqual(2);
@@ -49,7 +49,7 @@ describe("LangGraphAgent", () => {
 	});
 
 	it("maps text streaming events end-to-end", async () => {
-		const agent = new LangGraphAgent({
+		const agent = new LangChainAgentAdapter({
 			agent: makeMockAgent([
 				{
 					event: "on_chain_start",
@@ -115,7 +115,7 @@ describe("LangGraphAgent", () => {
 	});
 
 	it("maps tool call events end-to-end", async () => {
-		const agent = new LangGraphAgent({
+		const agent = new LangChainAgentAdapter({
 			agent: makeMockAgent([
 				{
 					event: "on_chain_start",
@@ -195,6 +195,8 @@ describe("LangGraphAgent", () => {
 		expect(types).toEqual([
 			EventType.RUN_STARTED,
 			EventType.STEP_STARTED, // agent
+			EventType.TEXT_MESSAGE_START, // synthetic parent for tool call
+			EventType.TEXT_MESSAGE_END,
 			EventType.TOOL_CALL_START,
 			EventType.TOOL_CALL_ARGS,
 			EventType.TOOL_CALL_END,
@@ -215,7 +217,7 @@ describe("LangGraphAgent", () => {
 			}),
 		} as never;
 
-		const agent = new LangGraphAgent({ agent: failingAgent });
+		const agent = new LangChainAgentAdapter({ agent: failingAgent });
 		const events = await collectEvents(agent, baseInput);
 
 		expect(events[0].type).toBe(EventType.RUN_STARTED);
@@ -226,7 +228,7 @@ describe("LangGraphAgent", () => {
 	});
 
 	it("clone() preserves langGraphAgent and runs correctly", async () => {
-		const original = new LangGraphAgent({
+		const original = new LangChainAgentAdapter({
 			agent: makeMockAgent([
 				{
 					event: "on_chain_start",
@@ -274,7 +276,7 @@ describe("LangGraphAgent", () => {
 	});
 
 	it("maps array content blocks (Anthropic) end-to-end", async () => {
-		const agent = new LangGraphAgent({
+		const agent = new LangChainAgentAdapter({
 			agent: makeMockAgent([
 				{
 					event: "on_chain_start",
@@ -335,7 +337,7 @@ describe("LangGraphAgent", () => {
 	});
 
 	it("maps multi-chunk tool call with consistent toolCallId", async () => {
-		const agent = new LangGraphAgent({
+		const agent = new LangChainAgentAdapter({
 			agent: makeMockAgent([
 				{
 					event: "on_chain_start",
@@ -420,7 +422,7 @@ describe("LangGraphAgent", () => {
 			},
 		} as never;
 
-		const agent = new LangGraphAgent({ agent: capturingAgent });
+		const agent = new LangChainAgentAdapter({ agent: capturingAgent });
 		await collectEvents(agent, {
 			...baseInput,
 			messages: [
@@ -451,7 +453,7 @@ describe("LangGraphAgent", () => {
 			},
 		} as never;
 
-		const agent = new LangGraphAgent({ agent: capturingAgent });
+		const agent = new LangChainAgentAdapter({ agent: capturingAgent });
 		await collectEvents(agent, {
 			...baseInput,
 			messages: [{ id: "1", role: "user", content: "hello" }],

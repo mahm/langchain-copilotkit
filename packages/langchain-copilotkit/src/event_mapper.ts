@@ -3,7 +3,7 @@ import type { BaseEvent } from "@ag-ui/client";
 
 const SKIP_NODES = new Set(["__start__", "__end__"]);
 
-// Internal type for accessing LangGraph stream event fields
+// Internal type for accessing LangChain stream event fields
 interface StreamEventInternal {
 	event: string;
 	name: string;
@@ -15,25 +15,51 @@ interface StreamEventInternal {
 }
 
 /**
- * Maps LangGraph stream events to AG-UI BaseEvent arrays.
+ * Maps LangChain stream events to AG-UI BaseEvent arrays.
  *
  * Handles: TEXT_MESSAGE, TOOL_CALL, TOOL_CALL_RESULT, STATE_SNAPSHOT, STEP
  */
 export class EventMapper {
 	private stateKeys: string[];
+	private debug: boolean;
 	private activeMessageId: string | null = null;
 	private activeToolCalls = new Map<string, boolean>();
 	private hasEmittedTextStart = false;
 	private currentNode: string | null = null;
+	private stepDepth = 0;
 	private accumulatedState: Record<string, unknown> = {};
 	private toolCallIndexToId = new Map<number, string>();
+	/** Ordered queue of tool call IDs from TOOL_CALL_START, consumed by TOOL_CALL_RESULT */
+	private pendingToolCallIds: string[] = [];
+	/** Buffer for tool call args that arrive before TOOL_CALL_START */
+	private bufferedArgs = new Map<string, string>();
 
-	constructor(stateKeys: string[] = []) {
+	constructor(stateKeys: string[] = [], debug = false) {
 		this.stateKeys = stateKeys;
+		this.debug = debug;
 	}
 
 	mapEvent(rawEvent: Record<string, unknown>): BaseEvent[] {
 		const event = rawEvent as unknown as StreamEventInternal;
+		if (this.debug) {
+			console.debug(
+				"[EventMapper] input:",
+				event.event,
+				event.name,
+				JSON.stringify(event.data).slice(0, 200),
+			);
+		}
+		const results = this._mapEvent(event);
+		if (this.debug && results.length > 0) {
+			console.debug(
+				"[EventMapper] output:",
+				results.map((e) => e.type),
+			);
+		}
+		return results;
+	}
+
+	private _mapEvent(event: StreamEventInternal): BaseEvent[] {
 		switch (event.event) {
 			case "on_chat_model_stream":
 				return this.handleChatModelStream(event);
@@ -141,21 +167,53 @@ export class EventMapper {
 						this.hasEmittedTextStart = false;
 					}
 
+					// Ensure a parent message exists so CopilotKit can attach the tool call
+					if (!this.activeMessageId) {
+						this.activeMessageId = crypto.randomUUID();
+						results.push({
+							type: EventType.TEXT_MESSAGE_START,
+							messageId: this.activeMessageId,
+							role: "assistant",
+						} as BaseEvent);
+						results.push({
+							type: EventType.TEXT_MESSAGE_END,
+							messageId: this.activeMessageId,
+						} as BaseEvent);
+					}
+
 					this.activeToolCalls.set(toolCallId, true);
+					this.pendingToolCallIds.push(toolCallId);
 					results.push({
 						type: EventType.TOOL_CALL_START,
 						toolCallId,
 						toolCallName: tc.name,
 						parentMessageId: this.activeMessageId,
 					} as BaseEvent);
+
+					// Flush any args that arrived before the name
+					const buffered = this.bufferedArgs.get(toolCallId);
+					if (buffered) {
+						results.push({
+							type: EventType.TOOL_CALL_ARGS,
+							toolCallId,
+							delta: buffered,
+						} as BaseEvent);
+						this.bufferedArgs.delete(toolCallId);
+					}
 				}
 
 				if (tc.args && tc.args.length > 0) {
-					results.push({
-						type: EventType.TOOL_CALL_ARGS,
-						toolCallId,
-						delta: tc.args,
-					} as BaseEvent);
+					if (this.activeToolCalls.has(toolCallId)) {
+						results.push({
+							type: EventType.TOOL_CALL_ARGS,
+							toolCallId,
+							delta: tc.args,
+						} as BaseEvent);
+					} else {
+						// Buffer args until TOOL_CALL_START fires
+						const existing = this.bufferedArgs.get(toolCallId) ?? "";
+						this.bufferedArgs.set(toolCallId, existing + tc.args);
+					}
 				}
 			}
 		}
@@ -195,16 +253,51 @@ export class EventMapper {
 		const output = event.data?.output;
 		if (!output) return [];
 
-		const content =
-			typeof output.content === "string"
-				? output.content
-				: JSON.stringify(output.content);
-		const toolCallId = output.tool_call_id ?? event.run_id;
+		let content: string;
+		let rawToolCallId: string | undefined;
+
+		if (typeof output === "string") {
+			// Raw string return from tool
+			content = output;
+			rawToolCallId = undefined;
+		} else if (output.lg_name === "Command") {
+			// Command object from LangGraph tools (e.g. deepagents)
+			const messages = output.update?.messages;
+			if (Array.isArray(messages) && messages.length > 0) {
+				const lastMsg = messages[messages.length - 1];
+				content =
+					typeof lastMsg.content === "string"
+						? lastMsg.content
+						: JSON.stringify(lastMsg.content);
+				rawToolCallId = lastMsg.tool_call_id;
+			} else {
+				content = JSON.stringify(output.update ?? output);
+			}
+		} else {
+			// ToolMessage object (standard case)
+			content =
+				typeof output.content === "string"
+					? output.content
+					: output.content != null
+						? JSON.stringify(output.content)
+						: "";
+			rawToolCallId = output.tool_call_id;
+		}
+
+		// Resolve toolCallId: prefer matching a pending ID from TOOL_CALL_START,
+		// fall back to queue order when IDs diverge (e.g. LangGraph-generated UUIDs).
+		let toolCallId = rawToolCallId ?? event.run_id;
+		const idx = this.pendingToolCallIds.indexOf(toolCallId);
+		if (idx >= 0) {
+			this.pendingToolCallIds.splice(idx, 1);
+		} else if (this.pendingToolCallIds.length > 0) {
+			toolCallId = this.pendingToolCallIds.shift() ?? toolCallId;
+		}
 
 		return [
 			{
 				type: EventType.TOOL_CALL_RESULT,
-				messageId: output.id ?? crypto.randomUUID(),
+				messageId: `result-${toolCallId}`,
 				toolCallId,
 				content,
 				role: "tool",
@@ -216,49 +309,97 @@ export class EventMapper {
 
 	private handleChainStart(event: StreamEventInternal): BaseEvent[] {
 		const nodeName = event.metadata?.langgraph_node as string | undefined;
-
-		if (
-			nodeName &&
-			event.name === nodeName &&
-			!SKIP_NODES.has(nodeName) &&
-			nodeName !== this.currentNode
-		) {
-			this.currentNode = nodeName;
-			return [
-				{
-					type: EventType.STEP_STARTED,
-					stepName: nodeName,
-				} as BaseEvent,
-			];
+		if (!nodeName || event.name !== nodeName || SKIP_NODES.has(nodeName)) {
+			return [];
 		}
-		return [];
+
+		// Nested chain within the same node — track depth, don't re-emit
+		if (nodeName === this.currentNode) {
+			this.stepDepth++;
+			return [];
+		}
+
+		this.currentNode = nodeName;
+		this.stepDepth = 1;
+		return [
+			{
+				type: EventType.STEP_STARTED,
+				stepName: nodeName,
+			} as BaseEvent,
+		];
 	}
 
 	private handleChainEnd(event: StreamEventInternal): BaseEvent[] {
-		const results: BaseEvent[] = [];
 		const nodeName = event.metadata?.langgraph_node as string | undefined;
+		if (!nodeName || event.name !== nodeName || nodeName !== this.currentNode) {
+			return [];
+		}
 
-		if (nodeName && event.name === nodeName && nodeName === this.currentNode) {
-			// Emit STATE_SNAPSHOT if stateKeys are configured
-			if (this.stateKeys.length > 0 && event.data?.output) {
-				const snapshot = this.filterState(
-					event.data.output as Record<string, unknown>,
-				);
-				if (Object.keys(snapshot).length > 0) {
-					this.mergeState(snapshot);
-					results.push({
-						type: EventType.STATE_SNAPSHOT,
-						snapshot: { ...this.accumulatedState },
-					} as BaseEvent);
+		this.stepDepth--;
+
+		// Inner chain closed — outer still running
+		if (this.stepDepth > 0) {
+			return [];
+		}
+
+		const results: BaseEvent[] = [];
+
+		// Extract TOOL_CALL_RESULT from Command outputs (deepagents pattern:
+		// on_chain_end emits an array of Commands instead of on_tool_end events)
+		if (this.pendingToolCallIds.length > 0 && event.data?.output) {
+			const outputs = Array.isArray(event.data.output)
+				? event.data.output
+				: [event.data.output];
+			for (const cmd of outputs) {
+				if (cmd?.lg_name !== "Command") continue;
+				const msgs = cmd.update?.messages;
+				if (!Array.isArray(msgs)) continue;
+				for (const msg of msgs) {
+					if (msg?.kwargs?.tool_call_id || msg?.tool_call_id) {
+						const content =
+							typeof (msg.kwargs?.content ?? msg.content) === "string"
+								? (msg.kwargs?.content ?? msg.content)
+								: JSON.stringify(msg.kwargs?.content ?? msg.content ?? "");
+						const rawId = msg.kwargs?.tool_call_id ?? msg.tool_call_id;
+						let toolCallId = rawId;
+						const idx = this.pendingToolCallIds.indexOf(toolCallId);
+						if (idx >= 0) {
+							this.pendingToolCallIds.splice(idx, 1);
+						} else if (this.pendingToolCallIds.length > 0) {
+							toolCallId = this.pendingToolCallIds.shift() ?? toolCallId;
+						}
+						results.push({
+							type: EventType.TOOL_CALL_RESULT,
+							messageId: `result-${toolCallId}`,
+							toolCallId,
+							content,
+							role: "tool",
+						} as BaseEvent);
+					}
 				}
 			}
-
-			results.push({
-				type: EventType.STEP_FINISHED,
-				stepName: nodeName,
-			} as BaseEvent);
-			this.currentNode = null;
 		}
+
+		// Emit STATE_SNAPSHOT if stateKeys are configured
+		if (this.stateKeys.length > 0 && event.data?.output) {
+			const snapshot = this.filterState(
+				event.data.output as Record<string, unknown>,
+			);
+			if (Object.keys(snapshot).length > 0) {
+				this.mergeState(snapshot);
+				results.push({
+					type: EventType.STATE_SNAPSHOT,
+					snapshot: { ...this.accumulatedState },
+				} as BaseEvent);
+			}
+		}
+
+		results.push({
+			type: EventType.STEP_FINISHED,
+			stepName: nodeName,
+		} as BaseEvent);
+		this.currentNode = null;
+		this.stepDepth = 0;
 
 		return results;
 	}

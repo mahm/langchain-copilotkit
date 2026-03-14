@@ -1,0 +1,18 @@
+@import "tailwindcss";
+
+.copilotKitChat {
+  height: 100%;
+  min-height: 0;
+}
+
+.copilotKitWindow {
+  position: relative !important;
+  height: 100% !important;
+  width: 100% !important;
+  max-height: none !important;
+  box-shadow: none !important;
+  border-radius: 0 !important;
+  opacity: 1 !important;
+  transform: none !important;
+  pointer-events: auto !important;
+}

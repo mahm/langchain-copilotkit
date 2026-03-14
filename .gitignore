@@ -3,3 +3,9 @@ dist/
 .turbo/
 *.tsbuildinfo
 .next/
+.env
+.env.local
+.env*.local
+.agents/
+.claude/
+skills-lock.json

@@ -2,14 +2,19 @@ import {
 	CopilotRuntime,
 	copilotRuntimeNextJSAppRouterEndpoint,
 } from "@copilotkit/runtime";
-import { createDeepAgent } from "deepagents";
-import { LangGraphAgent } from "langgraph-agui";
+import { createDeepAgent, StateBackend } from "deepagents";
+import { MemorySaver } from "@langchain/langgraph";
+import { LangChainAgentAdapter } from "langchain-copilotkit";
 
-const deepAgent = createDeepAgent({ model: "claude-sonnet-4-6" });
+const agent = createDeepAgent({
+	model: "claude-sonnet-4-6",
+	backend: (config) => new StateBackend(config),
+	checkpointer: new MemorySaver(),
+});
 
 const runtime = new CopilotRuntime({
 	agents: {
-		default: new LangGraphAgent({ agent: deepAgent }),
+		default: new LangChainAgentAdapter({ agent }),
 	},
 });
 

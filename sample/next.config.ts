@@ -6,7 +6,7 @@ const nextConfig: NextConfig = {
 		"@langchain/core",
 		"@langchain/langgraph",
 		"@langchain/anthropic",
-		"langgraph-agui",
+		"langchain-copilotkit",
 	],
 };
 

@@ -1,0 +1,6 @@
+sample/
+tmp/
+.agents/
+.claude/
+.git/
+node_modules/

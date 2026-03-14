@@ -5,7 +5,7 @@ import {
 	SystemMessage,
 	ToolMessage,
 } from "@langchain/core/messages";
-import { convertMessages, convertToAgUiMessages } from "./adapter";
+import { convertMessages, convertToAgUiMessages } from "./messages";
 
 describe("convertMessages", () => {
 	it("converts user message to HumanMessage", () => {

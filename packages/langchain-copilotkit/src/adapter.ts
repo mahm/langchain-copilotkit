@@ -1,36 +1,36 @@
 import { AbstractAgent, EventType } from "@ag-ui/client";
 import type { AgentConfig, BaseEvent, RunAgentInput } from "@ag-ui/client";
 import { Observable, type Subscriber } from "rxjs";
-import { convertMessages } from "./adapter";
 import { EventMapper } from "./event_mapper";
-import type { LangGraphAgentOptions, StreamableRunnable } from "./types";
+import { convertMessages } from "./messages";
+import type { LangChainAgentAdapterOptions, StreamableRunnable } from "./types";
 
 /**
- * AG-UI agent backed by a LangGraph Runnable.
+ * AG-UI agent backed by a LangChain Runnable.
  *
  * Designed for **in-process** integration with CopilotKit — no separate
- * HTTP server or `langgraph dev` process required.
+ * HTTP server or `langgraph up` process required.
  *
  * ```ts
  * const runtime = new CopilotRuntime({
- *   agents: [new LangGraphAgent({ agent: compiledGraph })],
+ *   agents: [new LangChainAgentAdapter({ agent: compiledGraph })],
  * });
  * ```
  */
-export class LangGraphAgent extends AbstractAgent {
-	private langGraphAgent: StreamableRunnable;
+export class LangChainAgentAdapter extends AbstractAgent {
+	private runnable: StreamableRunnable;
 	private stateKeys: string[];
 
-	constructor(options: LangGraphAgentOptions & Partial<AgentConfig>) {
+	constructor(options: LangChainAgentAdapterOptions & Partial<AgentConfig>) {
 		const { agent, stateKeys, ...agentConfig } = options;
-		super({ description: "LangGraph Agent", ...agentConfig });
-		this.langGraphAgent = agent;
+		super({ description: "LangChain Agent", ...agentConfig });
+		this.runnable = agent;
 		this.stateKeys = stateKeys ?? [];
 	}
 
-	clone(): LangGraphAgent {
-		const cloned = super.clone() as LangGraphAgent;
-		cloned.langGraphAgent = this.langGraphAgent;
+	clone(): LangChainAgentAdapter {
+		const cloned = super.clone() as LangChainAgentAdapter;
+		cloned.runnable = this.runnable;
 		cloned.stateKeys = [...this.stateKeys];
 		return cloned;
 	}
@@ -68,19 +68,27 @@ export class LangGraphAgent extends AbstractAgent {
 			runId: input.runId,
 		} as BaseEvent);
 
-		const messages = convertMessages(input.messages);
-		const eventStream = this.langGraphAgent.streamEvents(
-			{ messages },
-			{ version: "v2" },
-		);
+		try {
+			const messages = convertMessages(input.messages);
+			const eventStream = this.runnable.streamEvents(
+				{ messages },
+				{ version: "v2", configurable: { thread_id: input.threadId } },
+			);
 
-		for await (const event of eventStream) {
-			if (isAborted()) return;
+			for await (const event of eventStream) {
+				if (isAborted()) return;
 
-			const agUiEvents = mapper.mapEvent(event);
-			for (const e of agUiEvents) {
+				const agUiEvents = mapper.mapEvent(event);
+				for (const e of agUiEvents) {
+					subscriber.next(e);
+				}
+			}
+		} catch (error) {
+			// Finalize open events before propagating the error
+			for (const e of mapper.finalize()) {
 				subscriber.next(e);
 			}
+			throw error;
 		}
 
 		// Flush any remaining open events

@@ -8,7 +8,7 @@ export interface StreamableRunnable {
 	streamEvents(input: any, options: any): AsyncIterable<any>;
 }
 
-export interface LangGraphAgentOptions {
+export interface LangChainAgentAdapterOptions {
 	agent: StreamableRunnable;
 	stateKeys?: string[];
 }
