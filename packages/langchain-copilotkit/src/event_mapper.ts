@@ -319,14 +319,26 @@ export class EventMapper {
 			return [];
 		}
 
+		const results: BaseEvent[] = [];
+
+		// Close the previous step if still open (happens when subagents
+		// emit events for a different node before the outer node finishes)
+		if (this.currentNode && nodeName !== this.currentNode) {
+			results.push({
+				type: EventType.STEP_FINISHED,
+				stepName: this.currentNode,
+			} as BaseEvent);
+			this.currentNode = null;
+			this.stepDepth = 0;
+		}
+
 		this.currentNode = nodeName;
 		this.stepDepth = 1;
-		return [
-			{
-				type: EventType.STEP_STARTED,
-				stepName: nodeName,
-			} as BaseEvent,
-		];
+		results.push({
+			type: EventType.STEP_STARTED,
+			stepName: nodeName,
+		} as BaseEvent);
+		return results;
 	}
 
 	private handleChainEnd(event: StreamEventInternal): BaseEvent[] {
