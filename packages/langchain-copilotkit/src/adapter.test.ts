@@ -440,6 +440,73 @@ describe("LangChainAgentAdapter", () => {
 		expect(messages).toHaveLength(5);
 	});
 
+	it("emits CUSTOM interrupt event when getState returns interrupts", async () => {
+		const mockAgent = {
+			streamEvents: async function* (_input: unknown, _options: unknown) {
+				// empty stream
+			},
+			getState: async (_config: unknown) => ({
+				tasks: [
+					{
+						interrupts: [
+							{
+								value: {
+									action: "send_email",
+									args: { to: "test@example.com" },
+								},
+							},
+						],
+					},
+				],
+			}),
+		} as never;
+
+		const agent = new LangChainAgentAdapter({ agent: mockAgent });
+		const events = await collectEvents(agent, baseInput);
+		const types = events.map((e) => e.type);
+
+		expect(types).toContain(EventType.CUSTOM);
+		const customEvent = events.find(
+			(e) => e.type === EventType.CUSTOM,
+		) as unknown as { name: string; value: string };
+		expect(customEvent.name).toBe("on_interrupt");
+		expect(JSON.parse(customEvent.value)).toEqual({
+			action: "send_email",
+			args: { to: "test@example.com" },
+		});
+		// CUSTOM should come before RUN_FINISHED
+		const customIdx = types.indexOf(EventType.CUSTOM);
+		const finishedIdx = types.indexOf(EventType.RUN_FINISHED);
+		expect(customIdx).toBeLessThan(finishedIdx);
+	});
+
+	it("passes Command as input when forwardedProps.command.resume is present", async () => {
+		let capturedInput: unknown = null;
+		const capturingAgent = {
+			streamEvents: (input: unknown, _opts: unknown) => {
+				capturedInput = input;
+				return {
+					async *[Symbol.asyncIterator]() {
+						// empty stream
+					},
+				};
+			},
+		} as never;
+
+		const agent = new LangChainAgentAdapter({ agent: capturingAgent });
+		await collectEvents(agent, {
+			...baseInput,
+			forwardedProps: {
+				command: { resume: "user approved" },
+			},
+		});
+
+		expect(capturedInput).not.toBeNull();
+		const cmd = capturedInput as { lg_name?: string; resume?: unknown };
+		expect(cmd.lg_name).toBe("Command");
+		expect(cmd.resume).toBe("user approved");
+	});
+
 	it("converts input messages before streaming", async () => {
 		let capturedInput: Record<string, unknown> | null = null;
 		const capturingAgent = {

@@ -4,6 +4,7 @@ import { CopilotChat } from "@copilotkit/react-ui";
 import { useCopilotChat } from "@copilotkit/react-core";
 import "@copilotkit/react-ui/styles.css";
 import { ToolCallRenderer } from "./components/ToolCallRenderer";
+import { InterruptHandler } from "./components/InterruptHandler";
 
 export default function Home() {
 	const { isLoading } = useCopilotChat();
@@ -23,6 +24,7 @@ export default function Home() {
 			</header>
 			<div className="flex-1 min-h-0 flex flex-col overflow-hidden">
 				<ToolCallRenderer />
+				<InterruptHandler />
 				<CopilotChat
 					labels={{
 						title: "LangChain Agent",

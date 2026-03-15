@@ -69,11 +69,37 @@ export class LangChainAgentAdapter extends AbstractAgent {
 		} as BaseEvent);
 
 		try {
-			const messages = convertMessages(input.messages);
-			const eventStream = this.runnable.streamEvents(
-				{ messages },
-				{ version: "v2", configurable: { thread_id: input.threadId } },
-			);
+			// Resume detection: if forwardedProps.command.resume is present,
+			// use Command({ resume }) as input instead of messages
+			const resumeValue = (
+				input.forwardedProps as Record<string, unknown> | undefined
+			)?.command;
+			let streamInput: unknown;
+			if (
+				resumeValue &&
+				typeof resumeValue === "object" &&
+				"resume" in resumeValue
+			) {
+				const { Command } = await import("@langchain/langgraph");
+				let rawResume = (resumeValue as { resume: unknown }).resume;
+				// Parse JSON string resume values so the graph receives an object
+				if (typeof rawResume === "string") {
+					try {
+						rawResume = JSON.parse(rawResume);
+					} catch {
+						// keep as string if not valid JSON
+					}
+				}
+				streamInput = new Command({ resume: rawResume });
+			} else {
+				const messages = convertMessages(input.messages);
+				streamInput = { messages };
+			}
+
+			const eventStream = this.runnable.streamEvents(streamInput, {
+				version: "v2",
+				configurable: { thread_id: input.threadId },
+			});
 
 			for await (const event of eventStream) {
 				if (isAborted()) return;
@@ -94,6 +120,28 @@ export class LangChainAgentAdapter extends AbstractAgent {
 		// Flush any remaining open events
 		for (const e of mapper.finalize()) {
 			subscriber.next(e);
+		}
+
+		// Interrupt detection: check graph state for pending interrupts
+		if (this.runnable.getState) {
+			try {
+				const state = await this.runnable.getState({
+					configurable: { thread_id: input.threadId },
+				});
+				const interrupts = (state?.tasks ?? []).flatMap(
+					(t: { interrupts?: { value?: unknown }[] }) =>
+						t.interrupts ?? [],
+				);
+				if (interrupts.length > 0) {
+					subscriber.next({
+						type: EventType.CUSTOM,
+						name: "on_interrupt",
+						value: JSON.stringify(interrupts[0].value),
+					} as BaseEvent);
+				}
+			} catch {
+				// getState failure should not block the run
+			}
 		}
 
 		subscriber.next({

@@ -6,6 +6,8 @@
 export interface StreamableRunnable {
 	// biome-ignore lint/suspicious/noExplicitAny: must accept any Runnable input/output shape for cross-package compatibility
 	streamEvents(input: any, options: any): AsyncIterable<any>;
+	// biome-ignore lint/suspicious/noExplicitAny: LangGraph state shape varies by graph
+	getState?(config: any): Promise<any>;
 }
 
 export interface LangChainAgentAdapterOptions {
