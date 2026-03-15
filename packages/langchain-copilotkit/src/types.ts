@@ -13,4 +13,11 @@ export interface StreamableRunnable {
 export interface LangChainAgentAdapterOptions {
 	agent: StreamableRunnable;
 	stateKeys?: string[];
+	/**
+	 * When true (default), the adapter sends only new user messages on
+	 * subsequent turns instead of the full CopilotKit history, preventing
+	 * message duplication in checkpointer-backed graphs (MemorySaver, etc.).
+	 * Set to false only for stateless runnables without a checkpointer.
+	 */
+	stateful?: boolean;
 }

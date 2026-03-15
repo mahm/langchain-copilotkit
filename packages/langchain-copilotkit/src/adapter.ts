@@ -1,5 +1,10 @@
 import { AbstractAgent, EventType } from "@ag-ui/client";
-import type { AgentConfig, BaseEvent, RunAgentInput } from "@ag-ui/client";
+import type {
+	AgentConfig,
+	BaseEvent,
+	Message,
+	RunAgentInput,
+} from "@ag-ui/client";
 import { Observable, type Subscriber } from "rxjs";
 import { EventMapper } from "./event_mapper";
 import { convertMessages } from "./messages";
@@ -20,19 +25,43 @@ import type { LangChainAgentAdapterOptions, StreamableRunnable } from "./types";
 export class LangChainAgentAdapter extends AbstractAgent {
 	private runnable: StreamableRunnable;
 	private stateKeys: string[];
+	private stateful: boolean;
 
 	constructor(options: LangChainAgentAdapterOptions & Partial<AgentConfig>) {
-		const { agent, stateKeys, ...agentConfig } = options;
+		const { agent, stateKeys, stateful, ...agentConfig } = options;
 		super({ description: "LangChain Agent", ...agentConfig });
 		this.runnable = agent;
 		this.stateKeys = stateKeys ?? [];
+		this.stateful = stateful ?? true;
 	}
 
 	clone(): LangChainAgentAdapter {
 		const cloned = super.clone() as LangChainAgentAdapter;
 		cloned.runnable = this.runnable;
 		cloned.stateKeys = [...this.stateKeys];
+		cloned.stateful = this.stateful;
 		return cloned;
+	}
+
+	/**
+	 * In stateful mode, only send new messages to the graph.
+	 * The checkpoint already holds the full history from prior turns.
+	 */
+	private filterInputMessages(messages: Message[]): Message[] {
+		if (!this.stateful) return messages;
+
+		// First turn: no assistant message yet — send all to initialize checkpoint
+		if (!messages.some((m) => m.role === "assistant")) return messages;
+
+		// Subsequent turn: only new user messages after the last assistant/tool
+		let lastIdx = -1;
+		for (let i = messages.length - 1; i >= 0; i--) {
+			if (messages[i].role === "assistant" || messages[i].role === "tool") {
+				lastIdx = i;
+				break;
+			}
+		}
+		return messages.slice(lastIdx + 1);
 	}
 
 	run(input: RunAgentInput): Observable<BaseEvent> {
@@ -92,7 +121,8 @@ export class LangChainAgentAdapter extends AbstractAgent {
 				}
 				streamInput = new Command({ resume: rawResume });
 			} else {
-				const messages = convertMessages(input.messages);
+				const filtered = this.filterInputMessages(input.messages);
+				const messages = convertMessages(filtered);
 				streamInput = { messages };
 			}
 

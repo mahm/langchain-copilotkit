@@ -58,10 +58,24 @@ Extends `AbstractAgent` from `@ag-ui/client`.
 new LangChainAgentAdapter(options)
 ```
 
-| Option      | Type       | Description                                      |
-|-------------|------------|--------------------------------------------------|
-| `agent`     | `Runnable` | A LangGraph compiled graph or any LangChain Runnable |
-| `stateKeys` | `string[]` | State keys to include in `STATE_SNAPSHOT` events |
+| Option      | Type       | Default | Description                                      |
+|-------------|------------|---------|--------------------------------------------------|
+| `agent`     | `Runnable` | —       | A LangGraph compiled graph or any LangChain Runnable |
+| `stateKeys` | `string[]` | `[]`    | State keys to include in `STATE_SNAPSHOT` events |
+| `stateful`  | `boolean`  | `true`  | Send only new messages (set `false` for stateless runnables) |
+
+### Stateful Mode (default)
+
+By default, the adapter operates in stateful mode — it sends only new user messages on subsequent turns, preventing message duplication in checkpointer-backed graphs (e.g. `MemorySaver`, `PostgresSaver`). CopilotKit sends the full message history on every turn, but the checkpoint already holds the correct history.
+
+Set `stateful: false` only for stateless runnables without a checkpointer:
+
+```typescript
+new LangChainAgentAdapter({
+  agent: compiledGraph,
+  stateKeys: ["files"],
+})
+```
 
 ### `convertMessages(messages)` / `convertToAgUiMessages(messages)`
 
