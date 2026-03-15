@@ -1,7 +1,7 @@
 "use client";
 
 import { useLangGraphInterrupt } from "@copilotkit/react-core";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 function InterruptCard({
 	action,
@@ -12,33 +12,16 @@ function InterruptCard({
 	args: Record<string, unknown>;
 	resolve: (resolution: string) => void;
 }) {
-	const [editing, setEditing] = useState(false);
-	const [editText, setEditText] = useState("");
-	const [editError, setEditError] = useState<string | null>(null);
+	const [feedback, setFeedback] = useState("");
+	const composingRef = useRef(false);
 
-	const startEditing = () => {
-		setEditText(JSON.stringify(args, null, 2));
-		setEditError(null);
-		setEditing(true);
-	};
-
-	const submitEdit = () => {
-		try {
-			const editedArgs = JSON.parse(editText);
-			setEditing(false);
-			resolve(
-				JSON.stringify({
-					decisions: [
-						{
-							type: "edit",
-							editedAction: { name: action, args: editedArgs },
-						},
-					],
-				}),
-			);
-		} catch {
-			setEditError("Invalid JSON");
-		}
+	const sendFeedback = () => {
+		if (!feedback.trim()) return;
+		resolve(
+			JSON.stringify({
+				decisions: [{ type: "reject", message: feedback.trim() }],
+			}),
+		);
 	};
 
 	return (
@@ -46,81 +29,65 @@ function InterruptCard({
 			<div className="mb-2 font-semibold text-orange-900">
 				Approval Required: {action}
 			</div>
-			{!editing && (
-				<pre className="mb-3 whitespace-pre-wrap break-all rounded bg-white/60 p-2 text-xs text-slate-700">
-					{JSON.stringify(args, null, 2)}
-				</pre>
-			)}
-			{editing ? (
-				<div className="mt-2">
-					<textarea
-						className="w-full rounded border border-slate-300 bg-white p-2 text-xs font-mono text-slate-800 focus:border-blue-500 focus:outline-none"
-						rows={6}
-						value={editText}
-						onChange={(e) => {
-							setEditText(e.target.value);
-							setEditError(null);
-						}}
-					/>
-					{editError && (
-						<div className="mt-1 text-xs text-red-600">
-							{editError}
-						</div>
-					)}
-					<div className="mt-2 flex gap-2">
-						<button
-							type="button"
-							className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
-							onClick={submitEdit}
-						>
-							Submit Edit
-						</button>
-						<button
-							type="button"
-							className="rounded bg-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-400 transition-colors"
-							onClick={() => setEditing(false)}
-						>
-							Cancel
-						</button>
-					</div>
-				</div>
-			) : (
-				<div className="flex gap-2">
-					<button
-						type="button"
-						className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors"
-						onClick={() =>
-							resolve(
-								JSON.stringify({
-									decisions: [{ type: "approve" }],
-								}),
-							)
+			<pre className="mb-3 whitespace-pre-wrap break-all rounded bg-white/60 p-2 text-xs text-slate-700">
+				{JSON.stringify(args, null, 2)}
+			</pre>
+			<div className="flex gap-2">
+				<button
+					type="button"
+					className="rounded bg-emerald-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-emerald-700 transition-colors"
+					onClick={() =>
+						resolve(
+							JSON.stringify({
+								decisions: [{ type: "approve" }],
+							}),
+						)
+					}
+				>
+					Allow
+				</button>
+				<button
+					type="button"
+					className="rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
+					onClick={() =>
+						resolve(
+							JSON.stringify({
+								decisions: [{ type: "reject" }],
+							}),
+						)
+					}
+				>
+					Deny
+				</button>
+			</div>
+			<div className="mt-3 flex gap-2">
+				<input
+					type="text"
+					className="flex-1 rounded border border-slate-300 bg-white px-3 py-1.5 text-xs text-slate-800 placeholder:text-slate-400 focus:border-blue-500 focus:outline-none"
+					placeholder="修正の指示を入力してEnterで送信..."
+					value={feedback}
+					onChange={(e) => setFeedback(e.target.value)}
+					onCompositionStart={() => {
+						composingRef.current = true;
+					}}
+					onCompositionEnd={() => {
+						composingRef.current = false;
+					}}
+					onKeyDown={(e) => {
+						if (e.key === "Enter" && !composingRef.current) {
+							sendFeedback();
 						}
-					>
-						Approve
-					</button>
-					<button
-						type="button"
-						className="rounded bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 transition-colors"
-						onClick={() =>
-							resolve(
-								JSON.stringify({
-									decisions: [{ type: "reject" }],
-								}),
-							)
-						}
-					>
-						Reject
-					</button>
-					<button
-						type="button"
-						className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors"
-						onClick={startEditing}
-					>
-						Edit
-					</button>
-				</div>
-			)}
+					}}
+				/>
+				<button
+					type="button"
+					className="rounded bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 transition-colors disabled:opacity-50"
+					disabled={!feedback.trim()}
+					onClick={sendFeedback}
+				>
+					Send
+				</button>
+			</div>
 		</div>
 	);
 }

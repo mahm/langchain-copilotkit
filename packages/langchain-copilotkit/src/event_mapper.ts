@@ -77,6 +77,16 @@ export class EventMapper {
 	}
 
 	/**
+	 * Drain pending tool call IDs (tool calls started but never received a result).
+	 * Used by the adapter to emit synthetic results on interrupt.
+	 */
+	drainPendingToolCallIds(): string[] {
+		const ids = [...this.pendingToolCallIds];
+		this.pendingToolCallIds = [];
+		return ids;
+	}
+
+	/**
 	 * Emit closing events for any open text message, tool calls, or steps.
 	 */
 	finalize(): BaseEvent[] {

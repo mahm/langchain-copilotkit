@@ -29,7 +29,7 @@ const agent = createDeepAgent({
 	checkpointer: new MemorySaver(),
 	tools: [sendEmail],
 	interruptOn: {
-		send_email: { allowedDecisions: ["approve", "edit", "reject"] },
+		send_email: { allowedDecisions: ["approve", "reject"] },
 	},
 });
 

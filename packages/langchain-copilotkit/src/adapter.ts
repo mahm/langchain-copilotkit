@@ -133,6 +133,18 @@ export class LangChainAgentAdapter extends AbstractAgent {
 						t.interrupts ?? [],
 				);
 				if (interrupts.length > 0) {
+					// Emit TOOL_CALL_RESULT for pending tool calls so the UI
+					// transitions from "executing" (spinner) to "complete".
+					for (const toolCallId of mapper.drainPendingToolCallIds()) {
+						subscriber.next({
+							type: EventType.TOOL_CALL_RESULT,
+							messageId: `result-${toolCallId}`,
+							toolCallId,
+							content: "Awaiting approval",
+							role: "tool",
+						} as BaseEvent);
+					}
+
 					subscriber.next({
 						type: EventType.CUSTOM,
 						name: "on_interrupt",
