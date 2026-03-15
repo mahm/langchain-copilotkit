@@ -856,5 +856,439 @@ describe("EventMapper", () => {
 			expect(events[0].type).toBe(EventType.TEXT_MESSAGE_END);
 			expect(events[1].type).toBe(EventType.STEP_FINISHED);
 		});
+
+		it("closes open tool calls", () => {
+			const mapper = new EventMapper();
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{ name: "search", args: "{}", id: "tc_1", index: 0 },
+							],
+						},
+					},
+				}),
+			);
+
+			const events = mapper.finalize();
+			const toolCallEnd = events.find(
+				(e) => e.type === EventType.TOOL_CALL_END,
+			);
+			expect(toolCallEnd).toBeDefined();
+			expect(
+				(toolCallEnd as unknown as { toolCallId: string }).toolCallId,
+			).toBe("tc_1");
+		});
+
+		it("returns empty array when nothing is open", () => {
+			const mapper = new EventMapper();
+			const events = mapper.finalize();
+			expect(events).toHaveLength(0);
+		});
+	});
+
+	describe("drainPendingToolCallIds", () => {
+		it("returns pending IDs and clears the queue", () => {
+			const mapper = new EventMapper();
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{ name: "search", args: "{}", id: "tc_1", index: 0 },
+								{ name: "calc", args: "{}", id: "tc_2", index: 1 },
+							],
+						},
+					},
+				}),
+			);
+
+			const ids = mapper.drainPendingToolCallIds();
+			expect(ids).toEqual(["tc_1", "tc_2"]);
+
+			// Second call should return empty
+			const ids2 = mapper.drainPendingToolCallIds();
+			expect(ids2).toEqual([]);
+		});
+	});
+
+	describe("node transitions", () => {
+		it("auto-closes previous step when a new node starts", () => {
+			const mapper = new EventMapper();
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+				}),
+			);
+
+			// New node starts without agent ending
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "tools",
+					metadata: { langgraph_node: "tools" },
+				}),
+			);
+
+			expect(events).toHaveLength(2);
+			expect(events[0].type).toBe(EventType.STEP_FINISHED);
+			expect((events[0] as unknown as { stepName: string }).stepName).toBe(
+				"agent",
+			);
+			expect(events[1].type).toBe(EventType.STEP_STARTED);
+			expect((events[1] as unknown as { stepName: string }).stepName).toBe(
+				"tools",
+			);
+		});
+	});
+
+	describe("state accumulation and merge", () => {
+		it("accumulates state across multiple steps", () => {
+			const mapper = new EventMapper(["messages", "count"]);
+
+			// Step 1
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+				}),
+			);
+			const step1 = mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+					data: {
+						output: {
+							messages: [{ role: "assistant", content: "first" }],
+							count: 1,
+						},
+					},
+				}),
+			);
+			const snapshot1 = (
+				step1.find((e) => e.type === EventType.STATE_SNAPSHOT) as unknown as {
+					snapshot: Record<string, unknown>;
+				}
+			).snapshot;
+			expect(snapshot1.count).toBe(1);
+
+			// Step 2: array should concatenate, scalar should overwrite
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "tools",
+					metadata: { langgraph_node: "tools" },
+				}),
+			);
+			const step2 = mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "tools",
+					metadata: { langgraph_node: "tools" },
+					data: {
+						output: {
+							messages: [{ role: "tool", content: "result" }],
+							count: 2,
+						},
+					},
+				}),
+			);
+			const snapshot2 = (
+				step2.find((e) => e.type === EventType.STATE_SNAPSHOT) as unknown as {
+					snapshot: Record<string, unknown>;
+				}
+			).snapshot;
+			// Arrays concatenated
+			expect(snapshot2.messages).toEqual([
+				{ role: "assistant", content: "first" },
+				{ role: "tool", content: "result" },
+			]);
+			// Scalar overwritten
+			expect(snapshot2.count).toBe(2);
+		});
+	});
+
+	describe("edge cases", () => {
+		it("on_tool_end with no output returns empty array", () => {
+			const mapper = new EventMapper();
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "search",
+					data: { output: undefined },
+				}),
+			);
+			expect(events).toHaveLength(0);
+		});
+
+		it("handles non-string ToolMessage content via JSON.stringify", () => {
+			const mapper = new EventMapper();
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "search",
+					data: {
+						output: {
+							content: { results: [1, 2, 3] },
+							tool_call_id: "tc_1",
+						},
+					},
+				}),
+			);
+
+			expect(events).toHaveLength(1);
+			expect((events[0] as unknown as { content: string }).content).toBe(
+				JSON.stringify({ results: [1, 2, 3] }),
+			);
+		});
+
+		it("Command with empty messages array uses serialized update", () => {
+			const mapper = new EventMapper();
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "tool",
+					data: {
+						output: {
+							lg_name: "Command",
+							update: { messages: [] },
+						},
+					},
+				}),
+			);
+
+			expect(events).toHaveLength(1);
+			expect(events[0].type).toBe(EventType.TOOL_CALL_RESULT);
+			expect((events[0] as unknown as { content: string }).content).toBe(
+				JSON.stringify({ messages: [] }),
+			);
+		});
+
+		it("on_chat_model_stream with missing chunk returns empty array", () => {
+			const mapper = new EventMapper();
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {},
+				}),
+			);
+			expect(events).toHaveLength(0);
+		});
+
+		it("resolves parallel tool call results in correct order", () => {
+			const mapper = new EventMapper();
+
+			// Start two tool calls
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{ name: "search", args: "{}", id: "tc_A", index: 0 },
+								{ name: "calc", args: "{}", id: "tc_B", index: 1 },
+							],
+						},
+					},
+				}),
+			);
+			mapper.mapEvent(makeEvent({ event: "on_chat_model_end" }));
+
+			// Results arrive in order
+			const result1 = mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "search",
+					data: {
+						output: { content: "search result", tool_call_id: "tc_A" },
+					},
+				}),
+			);
+			expect((result1[0] as unknown as { toolCallId: string }).toolCallId).toBe(
+				"tc_A",
+			);
+
+			const result2 = mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "calc",
+					data: {
+						output: { content: "calc result", tool_call_id: "tc_B" },
+					},
+				}),
+			);
+			expect((result2[0] as unknown as { toolCallId: string }).toolCallId).toBe(
+				"tc_B",
+			);
+		});
+
+		it("handles same tool called multiple times with different indexes", () => {
+			const mapper = new EventMapper();
+
+			// Same tool name, different index/id
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{ name: "search", args: '{"q":"cats"}', id: "tc_1", index: 0 },
+								{
+									name: "search",
+									args: '{"q":"dogs"}',
+									id: "tc_2",
+									index: 1,
+								},
+							],
+						},
+					},
+				}),
+			);
+
+			const starts = events.filter((e) => e.type === EventType.TOOL_CALL_START);
+			expect(starts).toHaveLength(2);
+			expect((starts[0] as unknown as { toolCallId: string }).toolCallId).toBe(
+				"tc_1",
+			);
+			expect((starts[1] as unknown as { toolCallId: string }).toolCallId).toBe(
+				"tc_2",
+			);
+		});
+
+		it("kwargs-style ToolMessage in on_chain_end is correctly extracted", () => {
+			const mapper = new EventMapper();
+
+			// Start tool call
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{ name: "write_todos", args: "{}", id: "toolu_AAA", index: 0 },
+							],
+						},
+					},
+				}),
+			);
+			mapper.mapEvent(makeEvent({ event: "on_chat_model_end" }));
+
+			// on_chain_end with kwargs-style
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "model_request",
+					metadata: { langgraph_node: "model_request" },
+				}),
+			);
+			const events = mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "model_request",
+					metadata: { langgraph_node: "model_request" },
+					data: {
+						output: [
+							{
+								lg_name: "Command",
+								update: {
+									messages: [
+										{
+											lc: 1,
+											type: "constructor",
+											kwargs: {
+												content: "Done",
+												tool_call_id: "toolu_AAA",
+											},
+										},
+									],
+								},
+							},
+						],
+					},
+				}),
+			);
+
+			const result = events.find((e) => e.type === EventType.TOOL_CALL_RESULT);
+			expect(result).toBeDefined();
+			expect((result as unknown as { content: string }).content).toBe("Done");
+			expect((result as unknown as { toolCallId: string }).toolCallId).toBe(
+				"toolu_AAA",
+			);
+		});
+	});
+
+	describe("subgraph execution", () => {
+		it("handles parent → child graph node transitions", () => {
+			const mapper = new EventMapper();
+			const all: Array<{ type: string; stepName?: string }> = [];
+			const collect = (events: Array<{ type: string }>) => all.push(...events);
+
+			// Parent node starts
+			collect(
+				mapper.mapEvent(
+					makeEvent({
+						event: "on_chain_start",
+						name: "orchestrator",
+						metadata: { langgraph_node: "orchestrator" },
+					}),
+				),
+			);
+
+			// Child graph node starts (different langgraph_node)
+			collect(
+				mapper.mapEvent(
+					makeEvent({
+						event: "on_chain_start",
+						name: "sub_agent",
+						metadata: { langgraph_node: "sub_agent" },
+					}),
+				),
+			);
+
+			// Child graph node ends
+			collect(
+				mapper.mapEvent(
+					makeEvent({
+						event: "on_chain_end",
+						name: "sub_agent",
+						metadata: { langgraph_node: "sub_agent" },
+					}),
+				),
+			);
+
+			const types = all.map((e) => e.type);
+			expect(types).toEqual([
+				EventType.STEP_STARTED, // orchestrator
+				EventType.STEP_FINISHED, // orchestrator (auto-closed)
+				EventType.STEP_STARTED, // sub_agent
+				EventType.STEP_FINISHED, // sub_agent
+			]);
+
+			// Verify step names
+			expect((all[0] as unknown as { stepName: string }).stepName).toBe(
+				"orchestrator",
+			);
+			expect((all[1] as unknown as { stepName: string }).stepName).toBe(
+				"orchestrator",
+			);
+			expect((all[2] as unknown as { stepName: string }).stepName).toBe(
+				"sub_agent",
+			);
+			expect((all[3] as unknown as { stepName: string }).stepName).toBe(
+				"sub_agent",
+			);
+		});
 	});
 });

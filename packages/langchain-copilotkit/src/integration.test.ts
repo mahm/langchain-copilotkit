@@ -688,3 +688,305 @@ describe("CopilotKit integration: defaultApplyEvents", () => {
 		}
 	});
 });
+
+describe("CopilotKit integration: advanced scenarios", () => {
+	it("STATE_SNAPSHOT events pass verification", async () => {
+		const mapper = new EventMapper(["files"]);
+		const all: BaseEvent[] = [];
+		const collect = (evts: BaseEvent[]) => all.push(...evts);
+
+		all.push({
+			type: EventType.RUN_STARTED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+				}),
+			),
+		);
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: { chunk: { content: "Updated the file." } },
+				}),
+			),
+		);
+		collect(mapper.mapEvent(makeEvent({ event: "on_chat_model_end" })));
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+					data: {
+						output: {
+							files: [{ name: "app.ts", content: "console.log('hi')" }],
+						},
+					},
+				}),
+			),
+		);
+		collect(mapper.finalize());
+		all.push({
+			type: EventType.RUN_FINISHED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		const verified = await verifyEventStream(all);
+		expect(verified.length).toBe(all.length);
+
+		// Verify STATE_SNAPSHOT is present
+		const snapshot = all.find((e) => e.type === EventType.STATE_SNAPSHOT);
+		expect(snapshot).toBeDefined();
+	});
+
+	it("same tool called multiple times maps results correctly", async () => {
+		const mapper = new EventMapper();
+		const all: BaseEvent[] = [];
+		const collect = (evts: BaseEvent[]) => all.push(...evts);
+
+		all.push({
+			type: EventType.RUN_STARTED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+				}),
+			),
+		);
+		// Two calls to the same tool
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: {
+						chunk: {
+							content: "",
+							tool_call_chunks: [
+								{
+									name: "search",
+									args: '{"q":"cats"}',
+									id: "tc_1",
+									index: 0,
+								},
+								{
+									name: "search",
+									args: '{"q":"dogs"}',
+									id: "tc_2",
+									index: 1,
+								},
+							],
+						},
+					},
+				}),
+			),
+		);
+		collect(mapper.mapEvent(makeEvent({ event: "on_chat_model_end" })));
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "agent",
+					metadata: { langgraph_node: "agent" },
+				}),
+			),
+		);
+
+		// Tool results
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "tools",
+					metadata: { langgraph_node: "tools" },
+				}),
+			),
+		);
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "search",
+					data: {
+						output: { content: "cats result", tool_call_id: "tc_1" },
+					},
+				}),
+			),
+		);
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_tool_end",
+					name: "search",
+					data: {
+						output: { content: "dogs result", tool_call_id: "tc_2" },
+					},
+				}),
+			),
+		);
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "tools",
+					metadata: { langgraph_node: "tools" },
+				}),
+			),
+		);
+		collect(mapper.finalize());
+		all.push({
+			type: EventType.RUN_FINISHED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		const verified = await verifyEventStream(all);
+		expect(verified.length).toBe(all.length);
+
+		const { messages } = await applyEventStream(all);
+		const toolMsgs = messages.filter((m) => m.role === "tool");
+		expect(toolMsgs).toHaveLength(2);
+		expect(toolMsgs[0].content).toBe("cats result");
+		expect(toolMsgs[1].content).toBe("dogs result");
+	});
+
+	it("message round-trip preserves IDs", () => {
+		// AG-UI → LangChain → AG-UI
+		const { convertMessages, convertToAgUiMessages } = require("./messages");
+
+		const original = [
+			{ id: "msg-1", role: "user", content: "hello" },
+			{ id: "msg-2", role: "assistant", content: "hi" },
+			{ id: "msg-3", role: "system", content: "instructions" },
+		];
+
+		const langchainMsgs = convertMessages(original);
+		const roundTripped = convertToAgUiMessages(langchainMsgs);
+
+		for (let i = 0; i < original.length; i++) {
+			expect(roundTripped[i].id).toBe(original[i].id);
+			expect(roundTripped[i].role).toBe(original[i].role);
+		}
+	});
+
+	it("subgraph step transitions pass verification", async () => {
+		const mapper = new EventMapper();
+		const all: BaseEvent[] = [];
+		const collect = (evts: BaseEvent[]) => all.push(...evts);
+
+		all.push({
+			type: EventType.RUN_STARTED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		// Parent node
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "orchestrator",
+					metadata: { langgraph_node: "orchestrator" },
+				}),
+			),
+		);
+
+		// Sub-agent node (different langgraph_node)
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_start",
+					name: "writer",
+					metadata: { langgraph_node: "writer" },
+				}),
+			),
+		);
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chat_model_stream",
+					data: { chunk: { content: "Written by sub-agent" } },
+				}),
+			),
+		);
+		collect(mapper.mapEvent(makeEvent({ event: "on_chat_model_end" })));
+		collect(
+			mapper.mapEvent(
+				makeEvent({
+					event: "on_chain_end",
+					name: "writer",
+					metadata: { langgraph_node: "writer" },
+				}),
+			),
+		);
+
+		collect(mapper.finalize());
+		all.push({
+			type: EventType.RUN_FINISHED,
+			threadId: "t1",
+			runId: "r1",
+		} as BaseEvent);
+
+		const verified = await verifyEventStream(all);
+		expect(verified.length).toBe(all.length);
+	});
+});
+
+describe("CopilotKit integration: multi-turn stateful round-trip", () => {
+	it("turn 1 messages round-tripped through CopilotKit include tool messages", async () => {
+		const events = toolCallReActScenario();
+		const { messages } = await applyEventStream(events);
+
+		// CopilotKit should preserve tool messages from the agent's execution
+		const toolMsgs = messages.filter((m) => m.role === "tool");
+		expect(toolMsgs.length).toBeGreaterThanOrEqual(1);
+		expect(toolMsgs[0].toolCallId).toBe("tc_1");
+	});
+
+	it("stateful filter on round-tripped messages yields only new user input", async () => {
+		const events = toolCallReActScenario();
+		const { messages: turn1Messages } = await applyEventStream(events);
+
+		// Simulate turn 2: append the new user message
+		const turn2Messages: Message[] = [
+			...turn1Messages,
+			{ id: crypto.randomUUID(), role: "user", content: "OK" },
+		];
+
+		// Stateful filter logic: find last assistant/tool, take everything after
+		const hasAssistant = turn2Messages.some((m) => m.role === "assistant");
+		expect(hasAssistant).toBe(true);
+
+		let lastIdx = -1;
+		for (let i = turn2Messages.length - 1; i >= 0; i--) {
+			if (
+				turn2Messages[i].role === "assistant" ||
+				turn2Messages[i].role === "tool"
+			) {
+				lastIdx = i;
+				break;
+			}
+		}
+
+		const newMessages = turn2Messages.slice(lastIdx + 1);
+
+		// Only the new "OK" message should remain
+		expect(newMessages).toHaveLength(1);
+		expect(newMessages[0].role).toBe("user");
+		expect(newMessages[0].content).toBe("OK");
+	});
+});

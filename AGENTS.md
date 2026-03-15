@@ -4,7 +4,7 @@
 
 ## Core Principles
 
-- Always prefer simplicity over pathological correctness. YAGNI, KISS, DRY. No backward-compat shims or fallback paths unless they come free without adding cyclomatic complexity.
+- Always prefer simplicity over pathological correctness. YAGNI, KISS, DRY, Keep TDD. No backward-compat shims or fallback paths unless they come free without adding cyclomatic complexity.
 - Keep AGENTS.md in English. AGENTS.md must not exceed 150 lines.
 - If an issue occurs, do not address it with a quick patch. Investigate the root cause thoroughly and implement a fundamental fix.
 - Even if you discover a defect that is not directly related to this task, you must still create a remediation plan and resolve it at the root level to ensure the overall quality of the software.
@@ -15,6 +15,7 @@
 - Quality: `bun run check` is mandatory — enforced by pre-commit hook and CI
 - Commits: follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, etc.)
 - Release: update CHANGELOG → `npm version patch/minor/major` → `git push --follow-tags` → `npm publish`
+- TDD: When modifying the adapter, update [docs/TEST_DESIGN.md](docs/TEST_DESIGN.md) first, then tests, then implementation
 - Details: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
 ## Maintenance Notes

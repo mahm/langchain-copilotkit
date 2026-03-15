@@ -149,4 +149,86 @@ describe("convertToAgUiMessages", () => {
 		expect(result[0].role).toBe("tool");
 		expect((result[0] as { toolCallId: string }).toolCallId).toBe("tc_1");
 	});
+
+	it("generates UUID when message has no id", () => {
+		const result = convertToAgUiMessages([
+			new HumanMessage({ content: "hello" }),
+		]);
+		expect(result[0].id).toBeDefined();
+		expect(typeof result[0].id).toBe("string");
+		expect(result[0].id.length).toBeGreaterThan(0);
+	});
+
+	it("converts non-string content to JSON string", () => {
+		const result = convertToAgUiMessages([
+			new HumanMessage({
+				content: [{ type: "text", text: "hello" }] as never,
+				id: "1",
+			}),
+		]);
+		expect((result[0] as { content: string }).content).toBe(
+			JSON.stringify([{ type: "text", text: "hello" }]),
+		);
+	});
+
+	it("omits toolCalls when tool_calls array is empty", () => {
+		const result = convertToAgUiMessages([
+			new AIMessage({ content: "hi", id: "1", tool_calls: [] }),
+		]);
+		const msg = result[0] as unknown as { toolCalls?: unknown[] };
+		expect(msg.toolCalls).toBeUndefined();
+	});
+
+	it("falls back to user role for unknown message types", () => {
+		// Use a generic BaseMessage subclass (FunctionMessage is uncommon)
+		const { FunctionMessage } = require("@langchain/core/messages");
+		const result = convertToAgUiMessages([
+			new FunctionMessage({ content: "fn result", name: "fn", id: "1" }),
+		]);
+		expect(result[0].role).toBe("user");
+	});
+});
+
+describe("convertMessages edge cases", () => {
+	it("converts non-string content via JSON.stringify", () => {
+		const result = convertMessages([
+			{
+				id: "1",
+				role: "user",
+				content: { nested: "value" } as unknown as string,
+			},
+		]);
+		expect(result).toHaveLength(1);
+		expect(result[0].content).toBe(JSON.stringify({ nested: "value" }));
+	});
+
+	it("handles invalid JSON in tool call arguments via safeParseJson", () => {
+		const result = convertMessages([
+			{
+				id: "1",
+				role: "assistant",
+				content: "",
+				toolCalls: [
+					{
+						id: "tc_1",
+						type: "function" as const,
+						function: {
+							name: "search",
+							arguments: "not valid json",
+						},
+					},
+				],
+			},
+		]);
+		const ai = result[0] as AIMessage;
+		expect(ai.tool_calls?.[0].args).toEqual({ raw: "not valid json" });
+	});
+
+	it("falls back to HumanMessage for unknown role", () => {
+		const result = convertMessages([
+			{ id: "1", role: "custom_role" as never, content: "hello" },
+		]);
+		expect(result).toHaveLength(1);
+		expect(result[0]._getType()).toBe("human");
+	});
 });
