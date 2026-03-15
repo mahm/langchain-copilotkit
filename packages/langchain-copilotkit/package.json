@@ -1,6 +1,6 @@
 {
 	"name": "langchain-copilotkit",
-	"version": "0.1.0",
+	"version": "0.1.1",
 	"description": "LangChain Agent Adapter for CopilotKit — connect LangChain/LangGraph agents to CopilotKit via the AG-UI protocol without a separate server",
 	"type": "module",
 	"main": "./dist/index.cjs",
