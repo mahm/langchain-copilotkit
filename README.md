@@ -18,9 +18,9 @@ bun add langchain-copilotkit @langchain/core @langchain/langgraph
 
 ## Usage
 
-### CopilotKit Direct Integration (recommended)
+### CopilotKit Integration
 
-Use `LangChainAgentAdapter` directly with CopilotKit's runtime — no HTTP hop:
+Use `LangChainAgentAdapter` with CopilotKit's runtime:
 
 ```typescript
 import { CopilotRuntime } from "@copilotkit/runtime";
