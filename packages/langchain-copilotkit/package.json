@@ -45,7 +45,17 @@
 		"typescript": "^5.7.0"
 	},
 	"files": ["dist", "src", "README.md"],
+	"author": "Masahiro Nishimi",
 	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "https://github.com/mahm/langchain-copilotkit.git",
+		"directory": "packages/langchain-copilotkit"
+	},
+	"homepage": "https://github.com/mahm/langchain-copilotkit#readme",
+	"bugs": {
+		"url": "https://github.com/mahm/langchain-copilotkit/issues"
+	},
 	"keywords": [
 		"langchain",
 		"langgraph",

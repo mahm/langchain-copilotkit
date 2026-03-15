@@ -1,0 +1,21 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - name: Check langchain-copilotkit
+        run: bun run check
+        working-directory: packages/langchain-copilotkit
+      - name: Check sample
+        run: bun run check
+        working-directory: sample

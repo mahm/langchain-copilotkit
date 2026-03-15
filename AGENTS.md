@@ -10,6 +10,13 @@
 - Even if you discover a defect that is not directly related to this task, you must still create a remediation plan and resolve it at the root level to ensure the overall quality of the software.
 - When making any additions or modifications to applications under `sample/`, you must always verify and test all behavior in the browser.
 
+## Development & Release
+
+- Quality: `bun run check` is mandatory — enforced by pre-commit hook and CI
+- Commits: follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, etc.)
+- Release: update CHANGELOG → `npm version patch/minor/major` → `git push --follow-tags` → `npm publish`
+- Details: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+
 ## Maintenance Notes
 
 <!-- This section is permanent. Do not delete. -->
