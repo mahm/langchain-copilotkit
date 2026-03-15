@@ -1,46 +1,46 @@
 # langchain-copilotkit Sample App
 
-LangChain (LangGraph) と CopilotKit を統合したチャット UI のサンプルアプリケーションです。`langchain-copilotkit` アダプターを使い、LangGraph エージェントを CopilotKit のランタイムに接続します。
+A sample chat UI application integrating LangChain (LangGraph) with CopilotKit. Uses the `langchain-copilotkit` adapter to connect a LangGraph agent to the CopilotKit runtime.
 
-## 構成
+## Stack
 
 - **Next.js 16** + React 19 + Tailwind CSS 4
-- **CopilotKit** - チャット UI とランタイム
-- **LangGraph** - エージェントのオーケストレーション
-- **deepagents** - LangGraph エージェントの構築ヘルパー
+- **CopilotKit** — chat UI and runtime
+- **LangGraph** — agent orchestration
+- **deepagents** — LangGraph agent builder
 
-## セットアップ
+## Setup
 
-### 前提条件
+### Prerequisites
 
-- [bun](https://bun.sh/) がインストールされていること
-- Anthropic API キーまたは OpenAI API キー
+- [bun](https://bun.sh/) installed
+- Anthropic API key or OpenAI API key
 
-### 手順
+### Steps
 
-1. リポジトリルートで依存関係をインストール(monorepo のため、ルートから実行):
+1. Install dependencies from the repository root (monorepo):
 
 ```bash
 bun install
 ```
 
-2. 環境変数を設定:
+2. Set up environment variables:
 
 ```bash
 cp .env.sample .env.local
 ```
 
-`.env.local` を編集し、使用する LLM プロバイダーの API キーを設定:
+Edit `.env.local` and add your LLM provider API key:
 
 ```
 ANTHROPIC_API_KEY=sk-ant-...
 OPENAI_API_KEY=sk-...
 ```
 
-## 起動方法
+## Running
 
 ```bash
 bun dev
 ```
 
-ブラウザで http://localhost:3000 を開くとチャット UI が表示されます。
+Open http://localhost:3000 in your browser to see the chat UI.
