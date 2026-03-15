@@ -9,7 +9,7 @@ import { LangChainAgentAdapter } from "langchain-copilotkit";
 import { z } from "zod";
 
 const sendEmail = tool(
-  async ({ to, subject, body }) => {
+  async ({ to, subject }) => {
     return `Email sent to ${to} with subject "${subject}"`;
   },
   {
