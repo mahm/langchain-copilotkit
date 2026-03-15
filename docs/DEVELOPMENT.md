@@ -26,23 +26,20 @@ test: add or update tests
 
 ## Release Process
 
-Manual npm publish workflow:
+Tag push triggers automatic npm publish via `.github/workflows/publish.yml`.
 
-1. Update `packages/langchain-copilotkit/CHANGELOG.md` with new entries under `## [Unreleased]`
-2. Run version bump (this moves Unreleased to a versioned heading, creates a git tag):
+1. Update `packages/langchain-copilotkit/CHANGELOG.md` with new entries
+2. Run version bump:
    ```bash
    cd packages/langchain-copilotkit
    npm version patch  # or minor / major
    ```
-3. Push with tags:
+3. Commit and push with tags — CI publishes to npm automatically:
    ```bash
    git push --follow-tags
    ```
-4. Publish to npm:
-   ```bash
-   cd packages/langchain-copilotkit
-   npm publish
-   ```
+
+**Prerequisite:** `NPM_TOKEN` secret must be set in GitHub repository settings.
 
 ## Project Structure
 

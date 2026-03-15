@@ -14,7 +14,7 @@
 
 - Quality: `bun run check` is mandatory — enforced by pre-commit hook and CI
 - Commits: follow [Conventional Commits](https://www.conventionalcommits.org/) (`feat:`, `fix:`, `chore:`, etc.)
-- Release: update CHANGELOG → `npm version patch/minor/major` → `git push --follow-tags` → `npm publish`
+- Release: update CHANGELOG → `npm version patch/minor/major` → `git push --follow-tags` (CI auto-publishes)
 - TDD: When modifying the adapter, update [docs/TEST_DESIGN.md](docs/TEST_DESIGN.md) first, then tests, then implementation
 - Details: see [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 
