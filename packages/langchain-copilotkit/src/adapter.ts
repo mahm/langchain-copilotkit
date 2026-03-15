@@ -129,8 +129,7 @@ export class LangChainAgentAdapter extends AbstractAgent {
 					configurable: { thread_id: input.threadId },
 				});
 				const interrupts = (state?.tasks ?? []).flatMap(
-					(t: { interrupts?: { value?: unknown }[] }) =>
-						t.interrupts ?? [],
+					(t: { interrupts?: { value?: unknown }[] }) => t.interrupts ?? [],
 				);
 				if (interrupts.length > 0) {
 					// Emit TOOL_CALL_RESULT for pending tool calls so the UI
