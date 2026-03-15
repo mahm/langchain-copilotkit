@@ -44,7 +44,7 @@
 		"tsdown": "^0.9.0",
 		"typescript": "^5.7.0"
 	},
-	"files": ["dist", "src", "README.md"],
+	"files": ["dist", "src", "README.md", "CHANGELOG.md"],
 	"author": "Masahiro Nishimi",
 	"license": "MIT",
 	"repository": {
