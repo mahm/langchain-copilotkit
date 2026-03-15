@@ -1,0 +1,2 @@
+cd packages/langchain-copilotkit && bun run check
+cd ../../sample && bun run check
